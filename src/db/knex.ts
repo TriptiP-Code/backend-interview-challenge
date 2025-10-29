@@ -1,14 +1,15 @@
+// src/db/knex.ts
 import knex from 'knex';
 import path from 'path';
 import { config } from 'dotenv';
 config();
 
-const dbFile = process.env.SQLITE_FILE || path.join(__dirname, '..', '..', 'data', 'app.db');
+const DB_FILE = process.env.SQLITE_FILE || path.join(__dirname, '..', '..', 'data', 'app.db');
 
 export const db = knex({
   client: 'sqlite3',
   connection: {
-    filename: dbFile
+    filename: DB_FILE
   },
   useNullAsDefault: true,
   pool: {
