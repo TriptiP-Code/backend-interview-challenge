@@ -1,50 +1,45 @@
+// src/server.ts
 import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import { Database } from './db/database';
-import { createTaskRouter } from './routes/tasks';
+import path from 'path';
+import fs from 'fs';
+import tasksRouter from './routes/tasks';
 import { createSyncRouter } from './routes/sync';
-import { errorHandler } from './middleware/errorHandler';
-
-dotenv.config();
+import { db } from './db/knex';
+import { SyncClient } from './services/syncClient';
+import { SyncService } from './services/syncService';
+import { config } from 'dotenv';
+config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Initialize database
-const db = new Database(process.env.DATABASE_URL || './data/tasks.sqlite3');
-
-// Routes
-app.use('/api/tasks', createTaskRouter(db));
-app.use('/api', createSyncRouter(db));
-
-// Error handling
-app.use(errorHandler);
-
-// Start server
-async function start() {
-  try {
-    await db.initialize();
-    console.log('Database initialized');
-    
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
+// ensure migrations have run (simple approach)
+async function ensureMigrations() {
+  const sqlPath = path.join(__dirname, '..', 'migrations', '001_initial.sql');
+  if (fs.existsSync(sqlPath)) {
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+    await db.raw(sql);
   }
 }
 
-start();
+(async () => {
+  await ensureMigrations();
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  await db.close();
-  process.exit(0);
-});
+  // create syncService instance
+  const remoteUrl = process.env.SYNC_REMOTE_URL || '';
+  const client = new SyncClient(remoteUrl);
+  const syncService = new SyncService(client);
+
+  // routes
+  app.use('/api/tasks', tasksRouter);
+  app.use('/api/sync', createSyncRouter(syncService));
+
+  // health
+  app.get('/health', (req, res) => res.json({ ok: true }));
+
+  const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+  app.listen(PORT, () => {
+    console.log(`Server listening on http://localhost:${PORT}`);
+  });
+})();
+
+export default app;
